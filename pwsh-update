@@ -1,0 +1,156 @@
+#!/bin/sh
+printfw() {
+    if [ "$1" = "-n" ]; then shift; printf "%b" "$*"; else printf "%b\n" "$*";fi
+}
+
+error() {
+    printfw "\033[1;31m$*\033[0m" 1>&2
+    exit 1
+}
+
+depcheck() {
+    for cmd in "$@"; do
+        if ! command -v "$cmd" > /dev/null 2>&1; then
+            error "\"$cmd\" is not installed but is needed for the program to work."
+        fi
+    done
+}
+
+depcheck wget
+KEEP=false
+YES=false
+GLOBAL=true
+DIR="/usr/local/lib/powershell"
+
+while [ $# -ne 0 ]; do
+    case "$1" in
+        -h | --help)
+            printfw "$0: Update/install PowerShell on Linux distros
+Usage:
+-h | --help
+    Print a help message and exit.
+
+-k | --keep
+    Keep the downloaded archive after installation.
+
+-y | --yes
+    Answer \"y\" for everything.
+
+-u | --user
+    Only install for user.
+
+-d | --directory [dir]
+    Install in [dir]. Must be used with the \"--user\" option."
+            exit
+            ;;
+        -k | --keep)
+            KEEP=true
+            ;;
+        -y | --yes)
+            YES=true
+            ;;
+        -u | --user)
+            GLOBAL=false
+            if [ "$DIR" = "/usr/local/lib/powershell" ]; then
+                DIR="$HOME/powershell"
+            fi
+            ;;
+        -d | --directory)
+            if [ $# = 1 ]; then
+                error "Missing argument: [dir]"
+            fi
+            DIR=$(realpath -- "$2")
+            shift
+            ;;
+        *)
+            error "\"$1\": invalid option. Run \"$0 --help\" to see all options."
+            ;;
+    esac
+    shift
+done
+
+if [ "$(id -u)" != 0 ] && [ $GLOBAL = "true" ]; then
+    error "Please run this script with root privileges or the \"--user\" option."
+fi
+if [ $GLOBAL = "true" ] && [ "$DIR" != "/usr/local/lib/powershell" ]; then
+    error "You need to use the \"--user\" option with the \"--directory\" option."
+fi
+if [ $GLOBAL = "false" ]; then
+    case "$DIR" in
+        "$HOME/"*)
+            ;;
+        *)
+            error "You must install PowerShell in your home directory."
+            ;;
+    esac
+fi
+
+printfw "Installing PowerShell under directory \"$DIR\"."
+case "$(uname -m)" in
+    aarch64)
+        ARCH="arm64"
+        ;;
+    arm)
+        ARCH="arm32"
+        ;;
+    x86_64 | amd64)
+        ARCH="x64" 
+        ;;
+    *)
+        error "Architecture \"$(uname -m)\" not supported."
+        ;;
+esac
+
+LATEST=$(wget -qO- https://github.com/PowerShell/PowerShell/releases/latest | grep -oh "<title>.*</title>" | tr " " "\n" | grep "^v.*$" | tr -d "v")
+if [ "$LATEST" = "" ]; then
+    error "Failed to get latest PowerShell version."
+fi
+if command -v "$DIR/pwsh" > /dev/null 2>&1; then
+    if [ "$LATEST" = "$("$DIR/pwsh" -v | sed -e "s/PowerShell //g")" ]; then
+        printfw "PowerShell is already the newest version ($LATEST)."
+        exit
+    else
+        printfw -n "PowerShell version ($LATEST) is released! Update? [y/n] "
+    fi
+else
+    printfw -n "PowerShell is not installed. Install? [y/n] "
+fi
+if [ $YES = "true" ]; then
+    CHOICE="Y"
+    printfw "y"
+else
+    read -r CHOICE
+fi
+
+if [ "$(printfw "$CHOICE" | tr "[:lower:]" "[:upper:]")" = "N" ]; then
+    printfw "Abort."
+else
+    TARFILE=$(mktemp /tmp/powershell-XXXXXX.tar.gz)
+    printfw "Downloading PowerShell ($LATEST)..."
+    if wget "https://github.com/PowerShell/PowerShell/releases/download/v$LATEST/powershell-$LATEST-linux-$ARCH.tar.gz" -O "$TARFILE" > /dev/null 2>&1; then
+        printfw "Download done."
+    else
+        error "Download failed."
+    fi
+    printfw "Extracting files..."
+    if rm -rf "$DIR" > /dev/null 2>&1; mkdir -p "$DIR" > /dev/null 2>&1; tar -zxf "$TARFILE" -C "$DIR" > /dev/null 2>&1; then
+        if [ $GLOBAL = "true" ]; then
+            printfw "Extraction done."
+            printfw "Linking executable to \"/usr/local/bin\"..."
+            if ln -sf /usr/local/lib/powershell/pwsh /usr/local/bin/pwsh > /dev/null 2>&1; then
+                printfw "Linking done. Make sure that \"/usr/local/bin\" is in your \$PATH. Run \"pwsh\" to start PowerShell."
+            else
+                error "Linking failed."
+            fi
+        else
+            printfw "Extraction done. Run \"$DIR/pwsh\" to start PowerShell."
+        fi
+    else
+        error "Extraction failed."
+    fi
+    if [ $KEEP = "true" ]; then
+        printfw "The archive is stored at \"$TARFILE\". Move it to another directory for later use."
+    else
+        rm -f "$TARFILE"
+    fi
+fi

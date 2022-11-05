@@ -11,16 +11,20 @@ error() {
 depcheck() {
     for cmd in "$@"; do
         if ! command -v "$cmd" > /dev/null 2>&1; then
-            error "\"$cmd\" is not installed but is needed for the program to work."
+            error "\"$cmd\" is not installed."
         fi
     done
 }
 
 depcheck wget
+if [ "$TMPDIR" = "" ]; then
+    TMPDIR="/tmp"
+fi
 KEEP=false
 YES=false
 GLOBAL=true
 DIR="/usr/local/lib/powershell"
+PATHDIR=""
 
 while [ $# -ne 0 ]; do
     case "$1" in
@@ -52,7 +56,7 @@ Usage:
         -u | --user)
             GLOBAL=false
             if [ "$DIR" = "/usr/local/lib/powershell" ]; then
-                DIR="$HOME/powershell"
+                DIR="$HOME/.local/lib/powershell"
             fi
             ;;
         -d | --directory)
@@ -70,22 +74,20 @@ Usage:
 done
 
 if [ "$(id -u)" != 0 ] && [ $GLOBAL = "true" ]; then
-    error "Please run this script with root privileges or the \"--user\" option."
-fi
-if [ $GLOBAL = "true" ] && [ "$DIR" != "/usr/local/lib/powershell" ]; then
-    error "You need to use the \"--user\" option with the \"--directory\" option."
-fi
-if [ $GLOBAL = "false" ]; then
+    error "The script requires superuser. Add the \"--user\" option instead."
+elif [ $GLOBAL = "true" ] && [ "$DIR" != "/usr/local/lib/powershell" ]; then
+    error "The \"--user\" option must be set to use the \"--directory\" option."
+elif [ $GLOBAL = "false" ]; then
     case "$DIR" in
         "$HOME/"*)
             ;;
         *)
-            error "You must install PowerShell in your home directory."
+            error "Please PowerShell in your home directory."
             ;;
     esac
 fi
 
-printfw "Installing PowerShell under directory \"$DIR\"."
+printfw "Installing PowerShell under \"$DIR\"."
 case "$(uname -m)" in
     aarch64)
         ARCH="arm64"
@@ -94,10 +96,10 @@ case "$(uname -m)" in
         ARCH="arm32"
         ;;
     x86_64 | amd64)
-        ARCH="x64" 
+        ARCH="x64"
         ;;
     *)
-        error "Architecture \"$(uname -m)\" not supported."
+        error "Architecture is not supported."
         ;;
 esac
 
@@ -107,16 +109,15 @@ if [ "$LATEST" = "" ]; then
 fi
 if command -v "$DIR/pwsh" > /dev/null 2>&1; then
     if [ "$LATEST" = "$("$DIR/pwsh" -v | sed -e "s/PowerShell //g")" ]; then
-        printfw "PowerShell is already the newest version ($LATEST)."
+        printfw "PowerShell is already updated ($LATEST)."
         exit
-    else
-        printfw -n "PowerShell version ($LATEST) is released! Update? [y/n] "
     fi
+    printfw -n "PowerShell ($LATEST) is released! Update? [Y/n] "
 else
-    printfw -n "PowerShell is not installed. Install? [y/n] "
+    printfw -n "PowerShell is not installed. Install? [Y/n] "
 fi
 if [ $YES = "true" ]; then
-    CHOICE="Y"
+    CHOICE="y"
     printfw "y"
 else
     read -r CHOICE
@@ -124,33 +125,37 @@ fi
 
 if [ "$(printfw "$CHOICE" | tr "[:lower:]" "[:upper:]")" = "N" ]; then
     printfw "Abort."
+    exit
+fi
+TARFILE="$(mktemp -t powershell-XXXXXX.tar.gz)"
+printfw "Downloading PowerShell ($LATEST)..."
+if ! wget "https://github.com/PowerShell/PowerShell/releases/download/v$LATEST/powershell-$LATEST-linux-$ARCH.tar.gz" -O "$TARFILE" > /dev/null 2>&1; then
+    error "Download failed."
+fi
+printfw "Download done."
+printfw "Extracting files..."
+if ! (rm -rf "$DIR" > /dev/null 2>&1; mkdir -p "$DIR" > /dev/null 2>&1 && tar -zxf "$TARFILE" -C "$DIR" > /dev/null 2>&1); then
+    error "Extract failed."
+fi
+printfw "Extraction done."
+case "$DIR" in
+    /usr/local/lib/powershell|"$HOME/.local/lib/powershell")
+        PATHDIR="$(dirname "$(dirname "$DIR")")/bin"
+        printfw "Symlinking executable to \"$PATHDIR\"..."
+        ;;
+    *)
+        printfw "Directory is customized. Not symlinking to \$PATH."
+        printfw "Extraction done. Run \"$DIR/pwsh\" to start PowerShell."
+        ;;
+esac
+if [ "$PATHDIR" != "" ]; then
+    if ! (mkdir -p "$PATHDIR" && ln -sf "$DIR/pwsh" "$PATHDIR/pwsh" > /dev/null 2>&1;) then
+        error "Linking failed."
+    fi
+    printfw "Linking done. Make sure that \"$PATHDIR\" is in your \$PATH. Run \"pwsh\" to start PowerShell."
+fi
+if [ $KEEP = "true" ]; then
+    printfw "The archive is stored at \"$TARFILE\". Move it to another directory for later use."
 else
-    TARFILE=$(mktemp /tmp/powershell-XXXXXX.tar.gz)
-    printfw "Downloading PowerShell ($LATEST)..."
-    if wget "https://github.com/PowerShell/PowerShell/releases/download/v$LATEST/powershell-$LATEST-linux-$ARCH.tar.gz" -O "$TARFILE" > /dev/null 2>&1; then
-        printfw "Download done."
-    else
-        error "Download failed."
-    fi
-    printfw "Extracting files..."
-    if rm -rf "$DIR" > /dev/null 2>&1; mkdir -p "$DIR" > /dev/null 2>&1; tar -zxf "$TARFILE" -C "$DIR" > /dev/null 2>&1; then
-        if [ $GLOBAL = "true" ]; then
-            printfw "Extraction done."
-            printfw "Linking executable to \"/usr/local/bin\"..."
-            if ln -sf /usr/local/lib/powershell/pwsh /usr/local/bin/pwsh > /dev/null 2>&1; then
-                printfw "Linking done. Make sure that \"/usr/local/bin\" is in your \$PATH. Run \"pwsh\" to start PowerShell."
-            else
-                error "Linking failed."
-            fi
-        else
-            printfw "Extraction done. Run \"$DIR/pwsh\" to start PowerShell."
-        fi
-    else
-        error "Extraction failed."
-    fi
-    if [ $KEEP = "true" ]; then
-        printfw "The archive is stored at \"$TARFILE\". Move it to another directory for later use."
-    else
-        rm -f "$TARFILE"
-    fi
+    rm -f "$TARFILE"
 fi

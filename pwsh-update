@@ -1,6 +1,10 @@
 #!/bin/sh
 printfw() {
-    if [ "$1" = "-n" ]; then shift; printf "%b" "$*"; else printf "%b\n" "$*";fi
+    if [ "$1" = "-n" ]; then
+        shift; printf "%b" "$*"
+    else
+        printf "%b\n" "$*"
+    fi
 }
 
 error() {
@@ -20,15 +24,16 @@ depcheck wget
 if [ "$TMPDIR" = "" ]; then
     TMPDIR="/tmp"
 fi
+REPO="https://github.com/PowerShell/PowerShell"
 KEEP=false
 YES=false
 GLOBAL=true
 DIR="/usr/local/lib/powershell"
 PATHDIR=""
 
-while [ $# -ne 0 ]; do
+while [ "$#" -ne 0 ]; do
     case "$1" in
-        -h | --help)
+        -h|--help)
             printfw "$0: Update/install PowerShell on Linux distros
 Usage:
 -h | --help
@@ -47,23 +52,23 @@ Usage:
     Install in [dir]. Must be used with the \"--user\" option."
             exit
             ;;
-        -k | --keep)
+        -k|--keep)
             KEEP=true
             ;;
-        -y | --yes)
+        -y|--yes)
             YES=true
             ;;
-        -u | --user)
+        -u|--user)
             GLOBAL=false
             if [ "$DIR" = "/usr/local/lib/powershell" ]; then
                 DIR="$HOME/.local/lib/powershell"
             fi
             ;;
-        -d | --directory)
-            if [ $# = 1 ]; then
+        -d|--directory)
+            if [ "$#" = 1 ]; then
                 error "Missing argument: [dir]"
             fi
-            DIR=$(realpath -- "$2")
+            DIR="$(realpath -- "$2")"
             shift
             ;;
         *)
@@ -73,11 +78,11 @@ Usage:
     shift
 done
 
-if [ "$(id -u)" != 0 ] && [ $GLOBAL = "true" ]; then
+if [ "$(id -u)" != 0 ] && [ "$GLOBAL" = true ]; then
     error "The script requires superuser. Add the \"--user\" option instead."
-elif [ $GLOBAL = "true" ] && [ "$DIR" != "/usr/local/lib/powershell" ]; then
+elif [ "$GLOBAL" = true ] && [ "$DIR" != "/usr/local/lib/powershell" ]; then
     error "The \"--user\" option must be set to use the \"--directory\" option."
-elif [ $GLOBAL = "false" ]; then
+elif [ "$GLOBAL" = false ]; then
     case "$DIR" in
         "$HOME/"*)
             ;;
@@ -103,12 +108,12 @@ case "$(uname -m)" in
         ;;
 esac
 
-LATEST=$(wget -qO- https://github.com/PowerShell/PowerShell/releases/latest | grep -oh "<title>.*</title>" | tr " " "\n" | grep "^v.*$" | tr -d "v")
+LATEST="$(wget -qO- "$REPO/releases/latest" | grep -oh "<title>.*</title>" | tr " " "\n" | grep "^v.*$" | tr -d "v")"
 if [ "$LATEST" = "" ]; then
     error "Failed to get latest PowerShell version."
 fi
 if command -v "$DIR/pwsh" > /dev/null 2>&1; then
-    if [ "$LATEST" = "$("$DIR/pwsh" -v | sed -e "s/PowerShell //g")" ]; then
+    if [ "$LATEST" = "$("$DIR/pwsh" -v | sed "s/PowerShell //g")" ]; then
         printfw "PowerShell is already updated ($LATEST)."
         exit
     fi
@@ -116,7 +121,7 @@ if command -v "$DIR/pwsh" > /dev/null 2>&1; then
 else
     printfw -n "PowerShell is not installed. Install? [Y/n] "
 fi
-if [ $YES = "true" ]; then
+if [ "$YES" = true ]; then
     CHOICE="y"
     printfw "y"
 else
@@ -127,12 +132,31 @@ if [ "$(printfw "$CHOICE" | tr "[:lower:]" "[:upper:]")" = "N" ]; then
     printfw "Abort."
     exit
 fi
-TARFILE="$(mktemp -t powershell-XXXXXX.tar.gz)"
-printfw "Downloading PowerShell ($LATEST)..."
-if ! wget "https://github.com/PowerShell/PowerShell/releases/download/v$LATEST/powershell-$LATEST-linux-$ARCH.tar.gz" -O "$TARFILE" > /dev/null 2>&1; then
-    error "Download failed."
+TARFILE="${TMPDIR:-/tmp}/pwsh.tar.gz"
+if [ -f "$TARFILE" ]; then
+    printfw "Using downloaded archive."
+else
+    if [ -d "$TARFILE" ]; then
+        rm -rf "$TARFILE"
+    fi
+    printfw "Downloading PowerShell ($LATEST)..."
+    if ! wget "$REPO/releases/download/v$LATEST/powershell-$LATEST-linux-$ARCH.tar.gz" -O "$TARFILE" > /dev/null 2>&1; then
+        error "Download failed."
+    fi
+    printfw "Download done."
 fi
-printfw "Download done."
+
+printfw "Checking SHA256..."
+if [ "$(wget -qO- "$REPO/releases/download/v$LATEST/hashes.sha256" | tr -d "\r" | awk "\$2 == \"*powershell-$LATEST-linux-$ARCH.tar.gz\" {printf(\$1)}")" != "$(sha256sum "$TARFILE" | awk "{printf(\$1)}")" ]; then
+    printfw "Download is corrputed. Removing archive..."
+    if rm -f "$TARFILE"; then
+        printfw "Removed archive. Please rerun the script."
+        exit
+    else
+        error "Failed to remove the archive."
+    fi
+fi
+
 printfw "Extracting files..."
 if ! (rm -rf "$DIR" > /dev/null 2>&1; mkdir -p "$DIR" > /dev/null 2>&1 && tar -zxf "$TARFILE" -C "$DIR" > /dev/null 2>&1); then
     error "Extract failed."
@@ -154,7 +178,7 @@ if [ "$PATHDIR" != "" ]; then
     fi
     printfw "Linking done. Make sure that \"$PATHDIR\" is in your \$PATH. Run \"pwsh\" to start PowerShell."
 fi
-if [ $KEEP = "true" ]; then
+if [ "$KEEP" = true ]; then
     printfw "The archive is stored at \"$TARFILE\". Move it to another directory for later use."
 else
     rm -f "$TARFILE"

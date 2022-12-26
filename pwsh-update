@@ -20,16 +20,24 @@ depcheck() {
     done
 }
 
-depcheck wget
+vercomp() {
+    if printf "%s\n" "$1" "$2" | sed "/-/!s/$/_/g" | sort -VCu; then
+        return 1
+    fi
+    return 0
+}
+
+depcheck wget jq
 if [ "$TMPDIR" = "" ]; then
     TMPDIR="/tmp"
 fi
-REPO="https://github.com/PowerShell/PowerShell"
+REPO="PowerShell/PowerShell"
 KEEP=false
 YES=false
 GLOBAL=true
 DIR="/usr/local/lib/powershell"
 PATHDIR=""
+PRERELEASE=false
 
 while [ "$#" -ne 0 ]; do
     case "$1" in
@@ -49,7 +57,10 @@ Usage:
     Only install for user.
 
 -d | --directory [dir]
-    Install in [dir]. Must be used with the \"--user\" option."
+    Install in [dir]. Must be used with the \"--user\" option.
+
+-p | --prerelease
+    Install the prerelease version"
             exit
             ;;
         -k|--keep)
@@ -70,6 +81,9 @@ Usage:
             fi
             DIR="$(realpath -- "$2")"
             shift
+            ;;
+        -p|--prerelease)
+            PRERELEASE=true
             ;;
         *)
             error "\"$1\": invalid option. Run \"$0 --help\" to see all options."
@@ -108,13 +122,13 @@ case "$(uname -m)" in
         ;;
 esac
 
-LATEST="$(wget -qO- "$REPO/releases/latest" | grep -oh "<title>.*</title>" | tr " " "\n" | grep "^v.*$" | tr -d "v")"
+LATEST="$(wget -qO- https://api.github.com/repos/$REPO/releases | jq -r "map(select(.prerelease == $PRERELEASE)) | first | .tag_name" | sed "s/^v//g")"
 if [ "$LATEST" = "" ]; then
     error "Failed to get latest PowerShell version."
 fi
 if command -v "$DIR/pwsh" > /dev/null 2>&1; then
-    if [ "$LATEST" = "$("$DIR/pwsh" -v | sed "s/PowerShell //g")" ]; then
-        printfw "PowerShell is already updated ($LATEST)."
+    if vercomp "$("$DIR/pwsh" -v | sed "s/^PowerShell //g")" "$LATEST"; then
+        printfw "PowerShell is already up-to-date."
         exit
     fi
     printfw -n "PowerShell ($LATEST) is released! Update? [Y/n] "
@@ -140,14 +154,14 @@ else
         rm -rf "$TARFILE"
     fi
     printfw "Downloading PowerShell ($LATEST)..."
-    if ! wget "$REPO/releases/download/v$LATEST/powershell-$LATEST-linux-$ARCH.tar.gz" -O "$TARFILE" > /dev/null 2>&1; then
+    if ! wget ""https://github.com/$REPO/releases/download/v$LATEST/powershell-$LATEST-linux-$ARCH.tar.gz" -O "$TARFILE" > /dev/null 2>&1; then
         error "Download failed."
     fi
     printfw "Download done."
 fi
 
 printfw "Checking SHA256..."
-if [ "$(wget -qO- "$REPO/releases/download/v$LATEST/hashes.sha256" | tr -d "\r" | awk "\$2 == \"*powershell-$LATEST-linux-$ARCH.tar.gz\" {printf(\$1)}")" != "$(sha256sum "$TARFILE" | awk "{printf(\$1)}")" ]; then
+if [ "$(wget -qO- ""https://github.com/$REPO/releases/download/v$LATEST/hashes.sha256" | tr -d "\r" | awk "\$2 == \"*powershell-$LATEST-linux-$ARCH.tar.gz\" {printf(\$1)}")" != "$(sha256sum "$TARFILE" | awk "{printf(\$1)}")" ]; then
     printfw "Download is corrputed. Removing archive..."
     if rm -f "$TARFILE"; then
         printfw "Removed archive. Please rerun the script."

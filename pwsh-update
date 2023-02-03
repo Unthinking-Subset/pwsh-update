@@ -154,14 +154,14 @@ else
         rm -rf "$TARFILE"
     fi
     printfw "Downloading PowerShell ($LATEST)..."
-    if ! wget ""https://github.com/$REPO/releases/download/v$LATEST/powershell-$LATEST-linux-$ARCH.tar.gz" -O "$TARFILE" > /dev/null 2>&1; then
+    if ! wget "https://github.com/$REPO/releases/download/v$LATEST/powershell-$LATEST-linux-$ARCH.tar.gz" -O "$TARFILE" > /dev/null 2>&1; then
         error "Download failed."
     fi
     printfw "Download done."
 fi
 
 printfw "Checking SHA256..."
-if [ "$(wget -qO- ""https://github.com/$REPO/releases/download/v$LATEST/hashes.sha256" | tr -d "\r" | awk "\$2 == \"*powershell-$LATEST-linux-$ARCH.tar.gz\" {printf(\$1)}")" != "$(sha256sum "$TARFILE" | awk "{printf(\$1)}")" ]; then
+if [ "$(wget -qO- "https://github.com/$REPO/releases/download/v$LATEST/hashes.sha256" | tr -d "\r" | awk "\$2 == \"*powershell-$LATEST-linux-$ARCH.tar.gz\" {printf(\$1)}")" != "$(sha256sum "$TARFILE" | awk "{printf(\$1)}")" ]; then
     printfw "Download is corrputed. Removing archive..."
     if rm -f "$TARFILE"; then
         printfw "Removed archive. Please rerun the script."
@@ -187,7 +187,7 @@ case "$DIR" in
         ;;
 esac
 if [ "$PATHDIR" != "" ]; then
-    if ! (mkdir -p "$PATHDIR" && ln -sf "$DIR/pwsh" "$PATHDIR/pwsh" > /dev/null 2>&1;) then
+    if ! (mkdir -p "$PATHDIR" && ln -sf "$DIR/pwsh" "$PATHDIR/pwsh" > /dev/null 2>&1); then
         error "Linking failed."
     fi
     printfw "Linking done. Make sure that \"$PATHDIR\" is in your \$PATH. Run \"pwsh\" to start PowerShell."
